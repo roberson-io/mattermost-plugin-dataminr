@@ -8,12 +8,9 @@ Receive real-time [Dataminr First Alert](https://www.dataminr.com/) notification
 - **Channel subscriptions**: Subscribe channels to receive alerts from specific Dataminr accounts
 - **DM notifications**: Receive personal alerts via direct message from the Dataminr bot
 - **Configurable polling**: Set custom poll intervals per channel or for DM notifications
-- **Alert filtering**: Filter alerts by type (Flash, Urgent, or All)
-- **Secure credential storage**: User credentials are encrypted with AES-256
 
 ## Requirements
 
-- Mattermost Server 7.0.0+
 - Dataminr First Alert API credentials (Client ID and Client Secret)
 
 ## Installation
