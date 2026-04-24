@@ -89,7 +89,10 @@ func TestPollAndPostToChannel(t *testing.T) {
 		// Get cursor first
 		api.On("KVGet", userID+cursorKeyPrefix).Return(nil, nil)
 
-		// No credentials stored
+		// Token caching: check for cached token timestamp (none found)
+		api.On("KVGet", userID+"_dataminr_token_issued_at").Return(nil, nil)
+
+		// No credentials stored - getOrRefreshToken will fail
 		api.On("KVGet", userID+"_dataminr_credentials").Return(nil, nil)
 
 		api.On("LogError", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
@@ -98,7 +101,7 @@ func TestPollAndPostToChannel(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, response)
-		assert.Contains(t, response.Text, "credentials")
+		assert.Contains(t, response.Text, "authenticate")
 	})
 }
 
@@ -119,7 +122,10 @@ func TestPollAndSendDMs(t *testing.T) {
 		// Get cursor first
 		api.On("KVGet", userID+cursorKeyPrefix).Return(nil, nil)
 
-		// No credentials stored
+		// Token caching: check for cached token timestamp (none found)
+		api.On("KVGet", userID+"_dataminr_token_issued_at").Return(nil, nil)
+
+		// No credentials stored - getOrRefreshToken will fail
 		api.On("KVGet", userID+"_dataminr_credentials").Return(nil, nil)
 
 		api.On("LogError", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
@@ -128,7 +134,7 @@ func TestPollAndSendDMs(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, response)
-		assert.Contains(t, response.Text, "credentials")
+		assert.Contains(t, response.Text, "authenticate")
 	})
 }
 
@@ -156,7 +162,7 @@ func TestHandlePoll(t *testing.T) {
 		assert.Contains(t, response.Text, "not connected")
 	})
 
-	t.Run("polls and posts to channel when subscription exists", func(t *testing.T) {
+	t.Run("returns loading message when subscription exists (async polling)", func(t *testing.T) {
 		api := &plugintest.API{}
 		defer api.AssertExpectations(t)
 
@@ -180,25 +186,21 @@ func TestHandlePoll(t *testing.T) {
 		subsJSON, _ := json.Marshal(subs)
 		api.On("KVGet", subscriptionsKey).Return(subsJSON, nil)
 
-		// Get cursor for polling
-		api.On("KVGet", userID+cursorKeyPrefix).Return(nil, nil)
-
-		// No credentials stored - this stops the poll early with an error message
-		api.On("KVGet", userID+"_dataminr_credentials").Return(nil, nil)
-
-		// Allow logging
+		// Allow any additional calls from the async goroutine
+		api.On("KVGet", mock.Anything).Return(nil, nil).Maybe()
 		api.On("LogWarn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		api.On("LogError", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		api.On("SendEphemeralPost", mock.Anything, mock.Anything).Return(nil).Maybe()
 
 		response, err := plugin.HandlePoll(userID, channelID)
 
 		require.NoError(t, err)
 		require.NotNil(t, response)
-		// Should indicate credential retrieval failed
-		assert.Contains(t, response.Text, "credentials")
+		// Should return loading message immediately (async polling)
+		assert.Contains(t, response.Text, "Polling Dataminr")
 	})
 
-	t.Run("polls and sends DMs when no subscription but DM enabled", func(t *testing.T) {
+	t.Run("returns loading message when DM enabled and no subscription (async polling)", func(t *testing.T) {
 		api := &plugintest.API{}
 		defer api.AssertExpectations(t)
 
@@ -222,22 +224,18 @@ func TestHandlePoll(t *testing.T) {
 		subsJSON, _ := json.Marshal(subs)
 		api.On("KVGet", subscriptionsKey).Return(subsJSON, nil)
 
-		// Get cursor for polling
-		api.On("KVGet", userID+cursorKeyPrefix).Return(nil, nil)
-
-		// No credentials stored - this stops the poll early with an error message
-		api.On("KVGet", userID+"_dataminr_credentials").Return(nil, nil)
-
-		// Allow logging
+		// Allow any additional calls from the async goroutine
+		api.On("KVGet", mock.Anything).Return(nil, nil).Maybe()
 		api.On("LogWarn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		api.On("LogError", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		api.On("SendEphemeralPost", mock.Anything, mock.Anything).Return(nil).Maybe()
 
 		response, err := plugin.HandlePoll(userID, channelID)
 
 		require.NoError(t, err)
 		require.NotNil(t, response)
-		// Should indicate credential retrieval failed
-		assert.Contains(t, response.Text, "credentials")
+		// Should return loading message immediately (async polling)
+		assert.Contains(t, response.Text, "Polling Dataminr")
 	})
 
 	t.Run("no subscription and DM disabled returns error", func(t *testing.T) {
@@ -272,7 +270,7 @@ func TestHandlePoll(t *testing.T) {
 		assert.Contains(t, response.Text, "No subscription")
 	})
 
-	t.Run("any channel without subscription falls back to DM if enabled", func(t *testing.T) {
+	t.Run("any channel without subscription falls back to DM if enabled (async)", func(t *testing.T) {
 		api := &plugintest.API{}
 		defer api.AssertExpectations(t)
 
@@ -297,25 +295,21 @@ func TestHandlePoll(t *testing.T) {
 		subsJSON, _ := json.Marshal(subs)
 		api.On("KVGet", subscriptionsKey).Return(subsJSON, nil)
 
-		// Get cursor for polling
-		api.On("KVGet", userID+cursorKeyPrefix).Return(nil, nil)
-
-		// No credentials stored - this stops the poll early with an error message
-		api.On("KVGet", userID+"_dataminr_credentials").Return(nil, nil)
-
-		// Allow logging
+		// Allow any additional calls from the async goroutine
+		api.On("KVGet", mock.Anything).Return(nil, nil).Maybe()
 		api.On("LogWarn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		api.On("LogError", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		api.On("SendEphemeralPost", mock.Anything, mock.Anything).Return(nil).Maybe()
 
 		response, err := plugin.HandlePoll(userID, anyChannelID)
 
 		require.NoError(t, err)
 		require.NotNil(t, response)
-		// Since no credentials, should indicate credential retrieval failed
-		assert.Contains(t, response.Text, "credentials")
+		// Should return loading message immediately (async polling)
+		assert.Contains(t, response.Text, "Polling Dataminr")
 	})
 
-	t.Run("posts alerts to channel successfully", func(t *testing.T) {
+	t.Run("returns loading message when subscription exists (async channel polling)", func(t *testing.T) {
 		api := &plugintest.API{}
 		defer api.AssertExpectations(t)
 
@@ -340,21 +334,17 @@ func TestHandlePoll(t *testing.T) {
 		subsJSON, _ := json.Marshal(subs)
 		api.On("KVGet", subscriptionsKey).Return(subsJSON, nil)
 
-		// Get cursor for polling
-		api.On("KVGet", userID+cursorKeyPrefix).Return(nil, nil)
-
-		// No credentials stored - this stops the poll early with an error message
-		api.On("KVGet", userID+"_dataminr_credentials").Return(nil, nil)
-
-		// Allow logging
+		// Allow any additional calls from the async goroutine
+		api.On("KVGet", mock.Anything).Return(nil, nil).Maybe()
 		api.On("LogWarn", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
 		api.On("LogError", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return().Maybe()
+		api.On("SendEphemeralPost", mock.Anything, mock.Anything).Return(nil).Maybe()
 
 		response, err := plugin.HandlePoll(userID, channelID)
 
 		require.NoError(t, err)
 		require.NotNil(t, response)
-		// Since no credentials, should indicate credential retrieval failed
-		assert.Contains(t, response.Text, "credentials")
+		// Should return loading message immediately (async polling)
+		assert.Contains(t, response.Text, "Polling Dataminr")
 	})
 }

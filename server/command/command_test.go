@@ -20,7 +20,7 @@ type mockPluginAPI struct {
 	handleStatusError         error
 	handleLatestResponse      *model.CommandResponse
 	handleLatestError         error
-	handleLatestFunc          func(userID string, count int) (*model.CommandResponse, error)
+	handleLatestFunc          func(userID, channelID string, count int) (*model.CommandResponse, error)
 	handleSubscribeFunc       func(userID, channelID string) (*model.CommandResponse, error)
 	handleUnsubscribeFunc     func(userID, channelID string) (*model.CommandResponse, error)
 	handleListFunc            func(userID, channelID string) (*model.CommandResponse, error)
@@ -43,9 +43,9 @@ func (m *mockPluginAPI) HandleStatus(userID string) (*model.CommandResponse, err
 	return m.handleStatusResponse, m.handleStatusError
 }
 
-func (m *mockPluginAPI) HandleLatest(userID string, count int) (*model.CommandResponse, error) {
+func (m *mockPluginAPI) HandleLatest(userID, channelID string, count int) (*model.CommandResponse, error) {
 	if m.handleLatestFunc != nil {
-		return m.handleLatestFunc(userID, count)
+		return m.handleLatestFunc(userID, channelID, count)
 	}
 	return m.handleLatestResponse, m.handleLatestError
 }

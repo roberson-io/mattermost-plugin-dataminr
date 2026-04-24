@@ -88,6 +88,46 @@ func TestGetAlerts_WithCursor(t *testing.T) {
 	assert.Len(t, alertResp.Alerts, 0)
 }
 
+func TestGetAlerts_WithNextPageURL(t *testing.T) {
+	// Test that nextPage URL (starting with /) is handled correctly
+	// per API spec: use base URL + relative nextPage URL
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify the path includes the nextPage path
+		assert.Equal(t, "/firstalert/v1/alerts", r.URL.Path)
+		// Verify cursor from nextPage URL is in query (URL-decoded by server)
+		cursor := r.URL.Query().Get("from")
+		assert.Equal(t, "2wVWwq3bBSqy/tkFROaX2wUysoSh", cursor)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		response := dataminr.AlertResponse{
+			Alerts: []dataminr.Alert{
+				{
+					AlertID:  "new-alert-1",
+					Headline: "New alert after cursor",
+				},
+			},
+			NextPage: "/v1/alerts?from=newcursor123",
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	credentials := &dataminr.Credentials{
+		ClientID:     "test-client-id",
+		ClientSecret: "test-client-secret",
+	}
+	client := NewClient(credentials, server.URL)
+
+	// Pass the nextPage URL format (starts with /) as the cursor
+	// This simulates what happens when we store alertResp.NextPage and use it
+	alertResp, err := client.GetAlerts("test-token", "/v1/alerts?from=2wVWwq3bBSqy%2FtkFROaX2wUysoSh")
+	require.NoError(t, err)
+	require.NotNil(t, alertResp)
+	assert.Len(t, alertResp.Alerts, 1)
+	assert.Equal(t, "new-alert-1", alertResp.Alerts[0].AlertID)
+}
+
 func TestGetAlerts_WithPageSize(t *testing.T) {
 	// Create mock HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -184,7 +184,7 @@ func TestGetDataminrCredentials(t *testing.T) {
 }
 
 func TestStoreDataminrToken(t *testing.T) {
-	t.Run("successfully encrypts and stores token", func(t *testing.T) {
+	t.Run("successfully encrypts and stores token with timestamp", func(t *testing.T) {
 		api := &plugintest.API{}
 		defer api.AssertExpectations(t)
 
@@ -197,7 +197,9 @@ func TestStoreDataminrToken(t *testing.T) {
 		userID := "user123"
 		token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." //nolint:gosec // Test token, not a real credential
 
+		// Expect both token and timestamp to be stored
 		api.On("KVSet", userID+"_dataminr_token", mock.AnythingOfType("[]uint8")).Return(nil)
+		api.On("KVSet", userID+"_dataminr_token_issued_at", mock.AnythingOfType("[]uint8")).Return(nil)
 
 		err := plugin.storeDataminrToken(userID, token)
 		require.NoError(t, err)
@@ -555,7 +557,7 @@ func TestExecuteCommand_Latest_NotConnected(t *testing.T) {
 	// Mock: User is not connected (no user info)
 	api.On("KVGet", "user123_dataminr_userinfo").Return(nil, nil)
 
-	response, err := plugin.HandleLatest("user123", 5)
+	response, err := plugin.HandleLatest("user123", "channel456", 5)
 	require.NoError(t, err)
 	require.NotNil(t, response)
 	assert.Equal(t, model.CommandResponseTypeEphemeral, response.ResponseType)

@@ -47,16 +47,24 @@ func (p *Plugin) HandlePoll(userID, channelID string) (*model.CommandResponse, e
 		}
 	}
 
-	// Determine the polling target
+	// Determine the polling target and run async
 	if hasChannelSub {
-		// Poll and post to this channel
-		return p.pollAndPostToChannel(userID, channelID)
+		// Poll and post to this channel (async)
+		go p.pollAndPostToChannelAsync(userID, channelID)
+		return &model.CommandResponse{
+			ResponseType: model.CommandResponseTypeEphemeral,
+			Text:         "⏳ Polling Dataminr for new alerts...",
+		}, nil
 	}
 
 	// Check if DM notifications are enabled
 	if userInfo.Settings != nil && userInfo.Settings.DMNotifications {
-		// Poll and send as DMs
-		return p.pollAndSendDMs(userID)
+		// Poll and send as DMs (async)
+		go p.pollAndSendDMsAsync(userID, channelID)
+		return &model.CommandResponse{
+			ResponseType: model.CommandResponseTypeEphemeral,
+			Text:         "⏳ Polling Dataminr for new alerts...",
+		}, nil
 	}
 
 	// No valid target for polling
@@ -66,7 +74,145 @@ func (p *Plugin) HandlePoll(userID, channelID string) (*model.CommandResponse, e
 	}, nil
 }
 
-// pollAndPostToChannel fetches alerts and posts them to a specific channel
+// sendEphemeralMessage sends an ephemeral message to a user in a specific channel
+func (p *Plugin) sendEphemeralMessage(userID, channelID, message string) {
+	post := &model.Post{
+		UserId:    p.botUserID,
+		ChannelId: channelID,
+		Message:   message,
+	}
+	p.API.SendEphemeralPost(userID, post)
+}
+
+// pollAndPostToChannelAsync fetches alerts and posts them to a specific channel (runs in goroutine)
+func (p *Plugin) pollAndPostToChannelAsync(userID, channelID string) {
+	// Get cursor for pagination
+	cursor, err := p.getDataminrCursor(userID)
+	if err != nil {
+		// Log but continue - will start from beginning
+		p.API.LogWarn("Failed to get cursor for manual poll", "user_id", userID, "error", err.Error())
+	}
+
+	// Get token (from cache or refresh if needed) - this is the fast path
+	token, err := p.getOrRefreshToken(userID)
+	if err != nil {
+		p.API.LogError("Failed to get Dataminr token", "userID", userID, "error", err.Error())
+		p.sendEphemeralMessage(userID, channelID, "❌ Failed to authenticate with Dataminr. Please check your credentials and try reconnecting.")
+		return
+	}
+
+	// Get credentials to create the API client for fetching alerts
+	credentials, err := p.getDataminrCredentials(userID)
+	if err != nil {
+		p.API.LogError("Failed to get Dataminr credentials", "userID", userID, "error", err.Error())
+		p.sendEphemeralMessage(userID, channelID, "❌ Failed to retrieve credentials. Please try reconnecting with `/dataminr connect`.")
+		return
+	}
+
+	// Create API client for fetching alerts (token already obtained)
+	apiClient := client.NewClient(credentials, dataminrAPIBaseURL)
+
+	// Fetch alerts
+	alertResp, err := apiClient.GetAlerts(token, cursor)
+	if err != nil {
+		p.API.LogError("Failed to fetch Dataminr alerts", "userID", userID, "error", err.Error())
+		p.sendEphemeralMessage(userID, channelID, "❌ Failed to fetch alerts from Dataminr. Please try again later.")
+		return
+	}
+
+	// Deduplicate alerts
+	newAlerts := p.deduplicateAlerts(alertResp.Alerts)
+
+	if len(newAlerts) == 0 {
+		p.sendEphemeralMessage(userID, channelID, "✅ Poll complete. No new alerts to post.")
+		return
+	}
+
+	// Post each alert to the channel
+	postedCount := 0
+	for _, alert := range newAlerts {
+		if err := p.SendAlertToChannel(channelID, &alert, userID); err != nil {
+			p.API.LogWarn("Failed to post alert to channel", "alert_id", alert.AlertID, "error", err.Error())
+			continue
+		}
+		postedCount++
+	}
+
+	// Update cursor for next poll
+	if alertResp.NextPage != "" {
+		if err := p.storeDataminrCursor(userID, alertResp.NextPage); err != nil {
+			p.API.LogWarn("Failed to store cursor", "userID", userID, "error", err.Error())
+		}
+	}
+
+	p.sendEphemeralMessage(userID, channelID, fmt.Sprintf("✅ Poll complete. Posted %d new alert(s) to this channel.", postedCount))
+}
+
+// pollAndSendDMsAsync fetches alerts and sends them as DMs to the user (runs in goroutine)
+func (p *Plugin) pollAndSendDMsAsync(userID, channelID string) {
+	// Get cursor for pagination
+	cursor, err := p.getDataminrCursor(userID)
+	if err != nil {
+		// Log but continue - will start from beginning
+		p.API.LogWarn("Failed to get cursor for manual DM poll", "user_id", userID, "error", err.Error())
+	}
+
+	// Get token (from cache or refresh if needed) - this is the fast path
+	token, err := p.getOrRefreshToken(userID)
+	if err != nil {
+		p.API.LogError("Failed to get Dataminr token", "userID", userID, "error", err.Error())
+		p.sendEphemeralMessage(userID, channelID, "❌ Failed to authenticate with Dataminr. Please check your credentials and try reconnecting.")
+		return
+	}
+
+	// Get credentials to create the API client for fetching alerts
+	credentials, err := p.getDataminrCredentials(userID)
+	if err != nil {
+		p.API.LogError("Failed to get Dataminr credentials", "userID", userID, "error", err.Error())
+		p.sendEphemeralMessage(userID, channelID, "❌ Failed to retrieve credentials. Please try reconnecting with `/dataminr connect`.")
+		return
+	}
+
+	// Create API client for fetching alerts (token already obtained)
+	apiClient := client.NewClient(credentials, dataminrAPIBaseURL)
+
+	// Fetch alerts
+	alertResp, err := apiClient.GetAlerts(token, cursor)
+	if err != nil {
+		p.API.LogError("Failed to fetch Dataminr alerts", "userID", userID, "error", err.Error())
+		p.sendEphemeralMessage(userID, channelID, "❌ Failed to fetch alerts from Dataminr. Please try again later.")
+		return
+	}
+
+	// Deduplicate alerts
+	newAlerts := p.deduplicateAlerts(alertResp.Alerts)
+
+	if len(newAlerts) == 0 {
+		p.sendEphemeralMessage(userID, channelID, "✅ Poll complete. No new alerts to send.")
+		return
+	}
+
+	// Send each alert as a DM
+	sentCount := 0
+	for _, alert := range newAlerts {
+		if err := p.SendAlertDMFromBot(userID, &alert); err != nil {
+			p.API.LogWarn("Failed to send alert DM", "alert_id", alert.AlertID, "error", err.Error())
+			continue
+		}
+		sentCount++
+	}
+
+	// Update cursor for next poll
+	if alertResp.NextPage != "" {
+		if err := p.storeDataminrCursor(userID, alertResp.NextPage); err != nil {
+			p.API.LogWarn("Failed to store cursor", "userID", userID, "error", err.Error())
+		}
+	}
+
+	p.sendEphemeralMessage(userID, channelID, fmt.Sprintf("✅ Poll complete. Sent %d new alert(s) to your DM.", sentCount))
+}
+
+// pollAndPostToChannel fetches alerts and posts them to a specific channel (synchronous, for testing)
 func (p *Plugin) pollAndPostToChannel(userID, channelID string) (*model.CommandResponse, error) {
 	// Get cursor for pagination
 	cursor, err := p.getDataminrCursor(userID)
@@ -75,7 +221,17 @@ func (p *Plugin) pollAndPostToChannel(userID, channelID string) (*model.CommandR
 		p.API.LogWarn("Failed to get cursor for manual poll", "user_id", userID, "error", err.Error())
 	}
 
-	// Get user credentials
+	// Get token (from cache or refresh if needed) - this is the fast path
+	token, err := p.getOrRefreshToken(userID)
+	if err != nil {
+		p.API.LogError("Failed to get Dataminr token", "userID", userID, "error", err.Error())
+		return &model.CommandResponse{
+			ResponseType: model.CommandResponseTypeEphemeral,
+			Text:         "❌ Failed to authenticate with Dataminr. Please check your credentials and try reconnecting.",
+		}, nil
+	}
+
+	// Get credentials to create the API client for fetching alerts
 	credentials, err := p.getDataminrCredentials(userID)
 	if err != nil {
 		p.API.LogError("Failed to get Dataminr credentials", "userID", userID, "error", err.Error())
@@ -85,16 +241,8 @@ func (p *Plugin) pollAndPostToChannel(userID, channelID string) (*model.CommandR
 		}, nil
 	}
 
-	// Create API client and get token
+	// Create API client for fetching alerts (token already obtained)
 	apiClient := client.NewClient(credentials, dataminrAPIBaseURL)
-	token, err := apiClient.GetToken()
-	if err != nil {
-		p.API.LogError("Failed to get Dataminr token", "userID", userID, "error", err.Error())
-		return &model.CommandResponse{
-			ResponseType: model.CommandResponseTypeEphemeral,
-			Text:         "❌ Failed to authenticate with Dataminr. Please check your credentials and try reconnecting.",
-		}, nil
-	}
 
 	// Fetch alerts
 	alertResp, err := apiClient.GetAlerts(token, cursor)
@@ -139,7 +287,7 @@ func (p *Plugin) pollAndPostToChannel(userID, channelID string) (*model.CommandR
 	}, nil
 }
 
-// pollAndSendDMs fetches alerts and sends them as DMs to the user
+// pollAndSendDMs fetches alerts and sends them as DMs to the user (synchronous, for testing)
 func (p *Plugin) pollAndSendDMs(userID string) (*model.CommandResponse, error) {
 	// Get cursor for pagination
 	cursor, err := p.getDataminrCursor(userID)
@@ -148,7 +296,17 @@ func (p *Plugin) pollAndSendDMs(userID string) (*model.CommandResponse, error) {
 		p.API.LogWarn("Failed to get cursor for manual DM poll", "user_id", userID, "error", err.Error())
 	}
 
-	// Get user credentials
+	// Get token (from cache or refresh if needed) - this is the fast path
+	token, err := p.getOrRefreshToken(userID)
+	if err != nil {
+		p.API.LogError("Failed to get Dataminr token", "userID", userID, "error", err.Error())
+		return &model.CommandResponse{
+			ResponseType: model.CommandResponseTypeEphemeral,
+			Text:         "❌ Failed to authenticate with Dataminr. Please check your credentials and try reconnecting.",
+		}, nil
+	}
+
+	// Get credentials to create the API client for fetching alerts
 	credentials, err := p.getDataminrCredentials(userID)
 	if err != nil {
 		p.API.LogError("Failed to get Dataminr credentials", "userID", userID, "error", err.Error())
@@ -158,16 +316,8 @@ func (p *Plugin) pollAndSendDMs(userID string) (*model.CommandResponse, error) {
 		}, nil
 	}
 
-	// Create API client and get token
+	// Create API client for fetching alerts (token already obtained)
 	apiClient := client.NewClient(credentials, dataminrAPIBaseURL)
-	token, err := apiClient.GetToken()
-	if err != nil {
-		p.API.LogError("Failed to get Dataminr token", "userID", userID, "error", err.Error())
-		return &model.CommandResponse{
-			ResponseType: model.CommandResponseTypeEphemeral,
-			Text:         "❌ Failed to authenticate with Dataminr. Please check your credentials and try reconnecting.",
-		}, nil
-	}
 
 	// Fetch alerts
 	alertResp, err := apiClient.GetAlerts(token, cursor)

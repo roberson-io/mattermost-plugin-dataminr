@@ -81,8 +81,8 @@ func (p *Plugin) sendAlertDM(userID string, alert *dataminr.Alert) error {
 		return errors.Wrap(appErr, "failed to get DM channel with bot")
 	}
 
-	// Format the alert as a post
-	post := alerts.FormatAlertPost(alert, userID)
+	// Format the alert as an enhanced post with attachments
+	post := alerts.FormatAlertPostEnhanced(alert, userID)
 	post.UserId = p.botUserID
 	post.ChannelId = dmChannel.Id
 	post.Type = "custom_dataminr_alert"
@@ -98,8 +98,8 @@ func (p *Plugin) sendAlertDM(userID string, alert *dataminr.Alert) error {
 
 // postAlertToChannel posts an alert to a channel from the bot
 func (p *Plugin) postAlertToChannel(channelID string, alert *dataminr.Alert, dataminrUserID string) error {
-	// Format the alert as a post
-	post := alerts.FormatAlertPost(alert, dataminrUserID)
+	// Format the alert as an enhanced post with attachments
+	post := alerts.FormatAlertPostEnhanced(alert, dataminrUserID)
 	post.UserId = p.botUserID
 	post.ChannelId = channelID
 	post.Type = "custom_dataminr_alert"

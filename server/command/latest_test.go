@@ -86,7 +86,7 @@ func TestExecuteLatestCommand_Error(t *testing.T) {
 
 func TestExecuteLatestCommand_WithCountDefault(t *testing.T) {
 	env := setupTest()
-	env.pluginAPI.handleLatestFunc = func(userID string, count int) (*model.CommandResponse, error) {
+	env.pluginAPI.handleLatestFunc = func(userID, channelID string, count int) (*model.CommandResponse, error) {
 		// Verify default count is 5
 		assert.Equal(t, 5, count)
 		return &model.CommandResponse{
@@ -97,8 +97,9 @@ func TestExecuteLatestCommand_WithCountDefault(t *testing.T) {
 	handler := &Handler{client: env.client, pluginAPI: env.pluginAPI}
 
 	args := &model.CommandArgs{
-		Command: "/dataminr latest",
-		UserId:  "user123",
+		Command:   "/dataminr latest",
+		UserId:    "user123",
+		ChannelId: "channel456",
 	}
 
 	response, err := handler.Handle(args)
@@ -109,7 +110,7 @@ func TestExecuteLatestCommand_WithCountDefault(t *testing.T) {
 
 func TestExecuteLatestCommand_WithCountSpecified(t *testing.T) {
 	env := setupTest()
-	env.pluginAPI.handleLatestFunc = func(userID string, count int) (*model.CommandResponse, error) {
+	env.pluginAPI.handleLatestFunc = func(userID, channelID string, count int) (*model.CommandResponse, error) {
 		// Verify specified count is passed through
 		assert.Equal(t, 20, count)
 		return &model.CommandResponse{
@@ -120,8 +121,9 @@ func TestExecuteLatestCommand_WithCountSpecified(t *testing.T) {
 	handler := &Handler{client: env.client, pluginAPI: env.pluginAPI}
 
 	args := &model.CommandArgs{
-		Command: "/dataminr latest 20",
-		UserId:  "user123",
+		Command:   "/dataminr latest 20",
+		UserId:    "user123",
+		ChannelId: "channel456",
 	}
 
 	response, err := handler.Handle(args)
@@ -131,7 +133,7 @@ func TestExecuteLatestCommand_WithCountSpecified(t *testing.T) {
 
 func TestExecuteLatestCommand_CountMaximum(t *testing.T) {
 	env := setupTest()
-	env.pluginAPI.handleLatestFunc = func(userID string, count int) (*model.CommandResponse, error) {
+	env.pluginAPI.handleLatestFunc = func(userID, channelID string, count int) (*model.CommandResponse, error) {
 		// Verify max count of 100 is accepted
 		assert.Equal(t, 100, count)
 		return &model.CommandResponse{
@@ -142,8 +144,9 @@ func TestExecuteLatestCommand_CountMaximum(t *testing.T) {
 	handler := &Handler{client: env.client, pluginAPI: env.pluginAPI}
 
 	args := &model.CommandArgs{
-		Command: "/dataminr latest 100",
-		UserId:  "user123",
+		Command:   "/dataminr latest 100",
+		UserId:    "user123",
+		ChannelId: "channel456",
 	}
 
 	response, err := handler.Handle(args)

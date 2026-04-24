@@ -137,19 +137,34 @@ func (c *Client) GetAlertsWithPageSize(token string, cursor string, pageSize int
 
 // buildAlertsRequest constructs the HTTP request for fetching alerts
 func (c *Client) buildAlertsRequest(token string, cursor string, pageSize int) (*http.Request, error) {
-	alertsURL := c.baseURL + "/firstalert/v1/alerts"
+	var alertsURL string
+
+	// If cursor is provided and looks like a nextPage URL (starts with /), use it directly
+	// per API spec: "Use the full URL: The subsequent request URL should be constructed
+	// using the base API URL + the relative URL value provided in the nextPage field"
+	if cursor != "" && len(cursor) > 0 && cursor[0] == '/' {
+		// cursor is a nextPage value like "/v1/alerts?from=xyz" - append to base URL
+		alertsURL = c.baseURL + "/firstalert" + cursor
+	} else {
+		// No cursor or legacy cursor format - build URL with parameters
+		alertsURL = c.baseURL + "/firstalert/v1/alerts"
+	}
+
 	req, err := http.NewRequest(http.MethodGet, alertsURL, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// Add query parameters
-	q := req.URL.Query()
-	q.Add("pageSize", fmt.Sprintf("%d", pageSize))
-	if cursor != "" {
-		q.Add("from", cursor)
+	// Only add query parameters if we're not using a nextPage URL
+	// (nextPage URLs already contain the cursor)
+	if cursor == "" || (len(cursor) > 0 && cursor[0] != '/') {
+		q := req.URL.Query()
+		q.Add("pageSize", fmt.Sprintf("%d", pageSize))
+		if cursor != "" {
+			q.Add("from", cursor)
+		}
+		req.URL.RawQuery = q.Encode()
 	}
-	req.URL.RawQuery = q.Encode()
 
 	// Set authorization header
 	req.Header.Set("Authorization", "Bearer "+token)

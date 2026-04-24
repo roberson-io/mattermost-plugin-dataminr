@@ -2,16 +2,22 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/roberson-io/mattermost-plugin-dataminr/server/dataminr"
+	"github.com/roberson-io/mattermost-plugin-dataminr/server/dataminr/client"
 )
 
 const (
-	credentialsKeyPrefix = "_dataminr_credentials" //nolint:gosec // Not a credential, just a KV store key prefix
-	tokenKeyPrefix       = "_dataminr_token"       //nolint:gosec // Not a credential, just a KV store key prefix
-	cursorKeyPrefix      = "_dataminr_cursor"
-	userInfoKeyPrefix    = "_dataminr_userinfo"
+	credentialsKeyPrefix  = "_dataminr_credentials"     //nolint:gosec // Not a credential, just a KV store key prefix
+	tokenKeyPrefix        = "_dataminr_token"           //nolint:gosec // Not a credential, just a KV store key prefix
+	tokenIssuedAtPrefix   = "_dataminr_token_issued_at" //nolint:gosec // Not a credential, just a KV store key prefix
+	cursorKeyPrefix       = "_dataminr_cursor"
+	userInfoKeyPrefix     = "_dataminr_userinfo"
+	tokenExpiryBufferSecs = 300 // Refresh token 5 minutes before expiry
 )
 
 // storeDataminrCredentials encrypts and stores user credentials in the KV store
@@ -69,7 +75,7 @@ func (p *Plugin) getDataminrCredentials(userID string) (*dataminr.Credentials, e
 	return &credentials, nil
 }
 
-// storeDataminrToken encrypts and stores the bearer token in the KV store
+// storeDataminrToken encrypts and stores the bearer token in the KV store along with timestamp
 func (p *Plugin) storeDataminrToken(userID string, token string) error {
 	config := p.getConfiguration()
 
@@ -79,10 +85,17 @@ func (p *Plugin) storeDataminrToken(userID string, token string) error {
 		return errors.Wrap(err, "failed to encrypt token")
 	}
 
-	// Store in KV
+	// Store token in KV
 	key := userID + tokenKeyPrefix
 	if appErr := p.API.KVSet(key, []byte(encrypted)); appErr != nil {
 		return errors.Wrap(appErr, "failed to store token")
+	}
+
+	// Store timestamp
+	timestampKey := userID + tokenIssuedAtPrefix
+	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+	if appErr := p.API.KVSet(timestampKey, []byte(timestamp)); appErr != nil {
+		return errors.Wrap(appErr, "failed to store token timestamp")
 	}
 
 	return nil
@@ -110,6 +123,69 @@ func (p *Plugin) getDataminrToken(userID string) (string, error) {
 	}
 
 	return decrypted, nil
+}
+
+// getDataminrTokenIssuedAt retrieves the timestamp when the token was issued
+func (p *Plugin) getDataminrTokenIssuedAt(userID string) (int64, error) {
+	key := userID + tokenIssuedAtPrefix
+	data, appErr := p.API.KVGet(key)
+	if appErr != nil {
+		return 0, errors.Wrap(appErr, "failed to get token timestamp")
+	}
+
+	if data == nil {
+		return 0, nil // No timestamp found
+	}
+
+	timestamp, err := strconv.ParseInt(string(data), 10, 64)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to parse token timestamp")
+	}
+
+	return timestamp, nil
+}
+
+// isTokenValid checks if the cached token is still valid (not expired)
+func (p *Plugin) isTokenValid(userID string) bool {
+	issuedAt, err := p.getDataminrTokenIssuedAt(userID)
+	if err != nil || issuedAt == 0 {
+		return false
+	}
+
+	elapsed := time.Now().Unix() - issuedAt
+	// Token is valid if it hasn't exceeded expiry time minus buffer
+	return elapsed < (dataminr.TokenExpirySeconds - tokenExpiryBufferSecs)
+}
+
+// getOrRefreshToken returns a valid token, either from cache or by fetching a new one
+func (p *Plugin) getOrRefreshToken(userID string) (string, error) {
+	// Check if we have a valid cached token
+	if p.isTokenValid(userID) {
+		token, err := p.getDataminrToken(userID)
+		if err == nil && token != "" {
+			return token, nil
+		}
+	}
+
+	// Need to fetch a new token
+	credentials, err := p.getDataminrCredentials(userID)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get credentials")
+	}
+
+	apiClient := client.NewClient(credentials, dataminrAPIBaseURL)
+	token, err := apiClient.GetToken()
+	if err != nil {
+		return "", errors.Wrap(err, "failed to get token from Dataminr")
+	}
+
+	// Cache the new token
+	if err := p.storeDataminrToken(userID, token); err != nil {
+		// Log but don't fail - we still have a valid token
+		p.API.LogWarn("Failed to cache token", "userID", userID, "error", err.Error())
+	}
+
+	return token, nil
 }
 
 // storeDataminrCursor stores the pagination cursor in the KV store

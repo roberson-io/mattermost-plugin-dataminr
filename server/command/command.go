@@ -14,7 +14,7 @@ type PluginAPI interface {
 	HandleConnect(userID, clientID, clientSecret string) (*model.CommandResponse, error)
 	HandleDisconnect(userID string) (*model.CommandResponse, error)
 	HandleStatus(userID string) (*model.CommandResponse, error)
-	HandleLatest(userID string, count int) (*model.CommandResponse, error)
+	HandleLatest(userID, channelID string, count int) (*model.CommandResponse, error)
 	HandleSubscribe(userID, channelID string) (*model.CommandResponse, error)
 	HandleUnsubscribe(userID, channelID string) (*model.CommandResponse, error)
 	HandleList(userID, channelID string) (*model.CommandResponse, error)
@@ -219,7 +219,7 @@ func (h *Handler) executeLatestCommand(args *model.CommandArgs, cmdArgs []string
 		count = parsedCount
 	}
 
-	response, err := h.pluginAPI.HandleLatest(args.UserId, count)
+	response, err := h.pluginAPI.HandleLatest(args.UserId, args.ChannelId, count)
 	if err != nil {
 		return &model.CommandResponse{
 			ResponseType: model.CommandResponseTypeEphemeral,
