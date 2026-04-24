@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -12,8 +13,8 @@ import (
 	"github.com/mattermost/mattermost/server/public/pluginapi/cluster"
 	"github.com/pkg/errors"
 
-	"github.com/mattermost/mattermost-plugin-starter-template/server/command"
-	"github.com/mattermost/mattermost-plugin-starter-template/server/store/kvstore"
+	"github.com/roberson-io/mattermost-plugin-dataminr/server/command"
+	"github.com/roberson-io/mattermost-plugin-dataminr/server/store/kvstore"
 )
 
 // Plugin implements the interface expected by the Mattermost server to communicate between the server and plugin processes.
@@ -34,6 +35,9 @@ type Plugin struct {
 
 	backgroundJob *cluster.Job
 
+	// botUserID is the user ID of the Dataminr bot account
+	botUserID string
+
 	// configurationLock synchronizes access to the configuration.
 	configurationLock sync.RWMutex
 
@@ -48,7 +52,18 @@ func (p *Plugin) OnActivate() error {
 
 	p.kvstore = kvstore.NewKVStore(p.client)
 
-	p.commandClient = command.NewCommandHandler(p.client)
+	// Create or ensure bot user exists with profile image
+	botID, err := p.client.Bot.EnsureBot(&model.Bot{
+		Username:    BotUsername,
+		DisplayName: BotDisplayName,
+		Description: BotDescription,
+	}, pluginapi.ProfileImagePath(filepath.Join("assets", "profile.png")))
+	if err != nil {
+		return errors.Wrap(err, "failed to ensure bot user")
+	}
+	p.botUserID = botID
+
+	p.commandClient = command.NewCommandHandler(p.client, p)
 
 	p.router = p.initRouter()
 

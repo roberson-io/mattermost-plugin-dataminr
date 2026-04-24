@@ -1,11 +1,11 @@
 {
-    "id": "com.mattermost.plugin-starter-template",
-    "name": "Plugin Starter Template",
-    "description": "This plugin serves as a starting point for writing a Mattermost plugin.",
-    "homepage_url": "https://github.com/mattermost/mattermost-plugin-starter-template",
-    "support_url": "https://github.com/mattermost/mattermost-plugin-starter-template/issues",
-    "icon_path": "assets/starter-template-icon.svg",
-    "min_server_version": "6.2.1",
+    "id": "mattermost-plugin-dataminr",
+    "name": "Dataminr First Alert",
+    "description": "Receive real-time Dataminr First Alert notifications in Mattermost channels and direct messages.",
+    "homepage_url": "https://github.com/roberson-io/mattermost-plugin-dataminr",
+    "support_url": "https://github.com/roberson-io/mattermost-plugin-dataminr/issues",
+    "icon_path": "assets/profile.png",
+    "min_server_version": "7.0.0",
     "server": {
         "executables": {
             "linux-amd64": "server/dist/plugin-linux-amd64",
@@ -19,8 +19,58 @@
         "bundle_path": "webapp/dist/main.js"
     },
     "settings_schema": {
-        "header": "",
-        "footer": "",
-        "settings": []
+        "header": "Configure Dataminr First Alert integration settings.",
+        "footer": "For more information, see the [plugin documentation](https://github.com/roberson-io/mattermost-plugin-dataminr).",
+        "settings": [
+            {
+                "key": "DataminrEnabled",
+                "display_name": "Enable Dataminr Integration",
+                "type": "bool",
+                "help_text": "When enabled, the plugin will poll for alerts and deliver them to connected users.",
+                "default": true
+            },
+            {
+                "key": "DataminrEncryptionKey",
+                "display_name": "Encryption Key",
+                "type": "generated",
+                "help_text": "The AES encryption key used to encrypt user credentials. This is auto-generated on first use.",
+                "regenerate_help_text": "Regenerating this key will invalidate all existing user connections."
+            },
+            {
+                "key": "DataminrDefaultPollInterval",
+                "display_name": "Default Poll Interval (seconds)",
+                "type": "number",
+                "help_text": "The default interval in seconds between polling for new alerts. Minimum is 30 seconds.",
+                "default": 120
+            },
+            {
+                "key": "DataminrMinPollInterval",
+                "display_name": "Minimum Poll Interval (seconds)",
+                "type": "number",
+                "help_text": "The minimum allowed poll interval. This enforces rate limits with the Dataminr API.",
+                "default": 30
+            },
+            {
+                "key": "DataminrSubscriptionPermission",
+                "display_name": "Subscription Permission",
+                "type": "dropdown",
+                "help_text": "Who can subscribe channels to receive Dataminr alerts.",
+                "default": "channel_admin",
+                "options": [
+                    {
+                        "display_name": "Anyone (channel members)",
+                        "value": "anyone"
+                    },
+                    {
+                        "display_name": "Channel Admins",
+                        "value": "channel_admin"
+                    },
+                    {
+                        "display_name": "System Admins Only",
+                        "value": "system_admin"
+                    }
+                ]
+            }
+        ]
     }
 }
